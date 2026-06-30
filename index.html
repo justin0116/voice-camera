@@ -3,9 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="语音相机">
@@ -20,7 +17,7 @@
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    width: 100%; height: 100dvh;
+    width: 100%; height: 100%;
     overflow: hidden;
     background: #000;
     font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -28,19 +25,18 @@
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
-    position: fixed;
   }
   .app {
-    width: 100%; height: 100dvh;
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
     position: relative;
     background: #000;
-    overflow: hidden;
   }
 
   /* 相机预览 */
   .viewfinder {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    flex: 1;
+    position: relative;
     overflow: hidden;
     background: #0a0a0a;
   }
@@ -132,50 +128,42 @@
 
   /* 语音命令提示 */
   .voice-hint {
-    position: absolute; bottom: 155px; left: 50%; transform: translateX(-50%); z-index: 10;
+    position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); z-index: 10;
     background: rgba(0,0,0,0.7); color: #fff;
     padding: 8px 18px; border-radius: 20px;
     font-size: 13px; white-space: nowrap;
     transition: all .3s;
-    max-width: 90vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .voice-hint.command-detected {
     background: rgba(52, 199, 89, 0.85);
   }
 
-  /* 底部控制栏 - 固定在屏幕底部 */
+  /* 底部控制栏 - 两行布局 */
   .controls {
-    position: fixed;
-    bottom: 0; left: 0; right: 0; z-index: 50;
+    position: relative; z-index: 10;
     display: flex; flex-direction: column;
     align-items: center;
-    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 8px));
-    background: linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.5) 70%, transparent 100%);
-    flex-shrink: 0;
+    padding: 12px 16px calc(12px + var(--safe-area-bottom));
+    background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 100%);
   }
   .controls-row {
     display: flex; align-items: center; justify-content: space-around;
     width: 100%; max-width: 400px;
-    min-height: 52px;
   }
   .controls-features {
     display: flex; align-items: center; justify-content: center;
-    gap: 20px;
+    gap: 24px;
     width: 100%;
-    min-height: 40px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    padding-top: 8px;
   }
 
   .ctrl-group {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    min-width: 56px;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    min-width: 64px;
   }
 
   .ctrl-btn {
-    width: 40px; height: 40px;
+    width: 48px; height: 48px;
     border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.3);
     background: rgba(255,255,255,0.1);
@@ -201,18 +189,18 @@
     background: rgba(0,122,255,0.2);
     box-shadow: 0 0 12px rgba(0,122,255,0.3);
   }
-  .ctrl-btn svg { width: 20px; height: 20px; }
+  .ctrl-btn svg { width: 24px; height: 24px; }
 
   .ctrl-label {
-    color: rgba(255,255,255,0.75); font-size: 10px;
+    color: rgba(255,255,255,0.75); font-size: 11px;
     text-align: center;
   }
   .ctrl-label.on { color: #007aff; }
 
   /* 录制按钮 */
-  .btn-rec-wrap { min-width: 70px; }
+  .btn-rec-wrap { min-width: 80px; }
   .btn-rec {
-    width: 62px; height: 62px;
+    width: 72px; height: 72px;
     border-radius: 50%;
     border: 3px solid #fff;
     background: rgba(255,255,255,0.08);
@@ -220,22 +208,6 @@
     cursor: pointer;
     transition: all .25s;
     position: relative;
-  }
-  .btn-rec:active { transform: scale(0.92); }
-  .btn-rec.recording {
-    border-color: #ff3b30;
-    background: rgba(255,59,48,0.2);
-  }
-  .btn-rec.recording .rec-inner {
-    width: 20px; height: 20px;
-    border-radius: 5px;
-    background: #ff3b30;
-  }
-  .rec-inner {
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    background: #fff;
-    transition: all .25s;
   }
   .btn-rec:active { transform: scale(0.92); }
   .btn-rec.recording {
@@ -293,23 +265,6 @@
     white-space: nowrap;
   }
   .toast.show { opacity: 1; }
-
-  /* === 小屏手机适配（高度 < 700px）=== */
-  @media (max-height: 700px) {
-    .controls {
-      padding: 4px 16px calc(4px + var(--safe-area-bottom, 4px));
-    }
-    .controls-row { min-height: 44px; }
-    .controls-features { min-height: 32px; padding-top: 2px; padding-bottom: 2px; gap: 16px; }
-    .ctrl-btn { width: 34px; height: 34px; }
-    .ctrl-btn svg { width: 17px; height: 17px; }
-    .ctrl-label { font-size: 9px; }
-    .btn-rec { width: 52px; height: 52px; }
-    .rec-inner { width: 20px; height: 20px; }
-    .btn-rec.recording .rec-inner { width: 16px; height: 16px; }
-    .voice-hint { bottom: 130px; font-size: 11px; padding: 6px 14px; }
-    .ctrl-group { min-width: 48px; gap: 3px; }
-  }
 </style>
 </head>
 <body>
@@ -324,7 +279,7 @@
     <!-- 预录制指示器 -->
     <div class="pre-record-indicator active" id="preRecordInd">
       <div class="pre-dot pulse"></div>
-      <span>预录缓冲 10s</span>
+      <span>预录缓冲 3s</span>
     </div>
 
     <div class="record-bar" id="recordBar">
@@ -534,7 +489,7 @@
   }
 
   // ============ 预录制 ============
-  const PRE_RECORD_MS = 10000;      // 预录 10 秒
+  const PRE_RECORD_MS = 3000;       // 预录 3 秒
   const PRE_TIMESLICE = 500;         // 每 500ms 切一片
   let preRecorder = null;
   let preRecordBuffer = [];           // 环形缓冲 [{ ts, chunk }]
@@ -1061,25 +1016,9 @@
     }
   });
 
-  // Service Worker - 强制更新
+  // Service Worker
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      // 检测到新版本时自动刷新
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
-            // 清除旧缓存，强制刷新页面
-            caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
-              .then(() => { location.reload(); });
-          }
-        });
-      });
-    }).catch(() => {});
-    // 每次加载时主动检查更新
-    navigator.serviceWorker.getRegistration().then(reg => {
-      if (reg) reg.update();
-    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 })();
 </script>
