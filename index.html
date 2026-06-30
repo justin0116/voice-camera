@@ -40,10 +40,21 @@
     overflow: hidden;
     background: #0a0a0a;
   }
-  .viewfinder video {
+  /* 防抖变换容器 */
+  .stabilizer {
     width: 100%; height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  .stabilizer video {
+    position: absolute;
+    /* 放大 5% 留出矫正余量 */
+    top: -2.5%; left: -2.5%;
+    width: 105%; height: 105%;
     object-fit: cover;
     display: block;
+    will-change: transform;
+    transition: transform 0.05s linear;
   }
   .viewfinder canvas {
     display: none;
@@ -56,6 +67,27 @@
       linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
       linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px);
     background-size: 33.33% 33.33%;
+  }
+
+  /* 预录制指示器 */
+  .pre-record-indicator {
+    position: absolute; top: calc(var(--safe-area-top) + 6px); left: 12px; z-index: 15;
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(255,149,0,0.18);
+    border: 1px solid rgba(255,149,0,0.4);
+    padding: 4px 10px; border-radius: 12px;
+    font-size: 11px; color: #ff9500;
+    opacity: 0; transition: opacity .3s;
+  }
+  .pre-record-indicator.active { opacity: 1; }
+  .pre-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #ff9500;
+  }
+  .pre-dot.pulse { animation: prePulse 1.2s infinite; }
+  @keyframes prePulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.3; transform: scale(1.6); }
   }
 
   /* 顶部录制提示条 */
@@ -106,17 +138,28 @@
     background: rgba(52, 199, 89, 0.85);
   }
 
-  /* 底部控制栏 */
+  /* 底部控制栏 - 两行布局 */
   .controls {
     position: relative; z-index: 10;
-    display: flex; align-items: center; justify-content: space-around;
+    display: flex; flex-direction: column;
+    align-items: center;
     padding: 12px 16px calc(12px + var(--safe-area-bottom));
     background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 100%);
+  }
+  .controls-row {
+    display: flex; align-items: center; justify-content: space-around;
+    width: 100%; max-width: 400px;
+  }
+  .controls-features {
+    display: flex; align-items: center; justify-content: center;
+    gap: 24px;
+    width: 100%;
+    padding-top: 8px;
   }
 
   .ctrl-group {
     display: flex; flex-direction: column; align-items: center; gap: 5px;
-    min-width: 72px;
+    min-width: 64px;
   }
 
   .ctrl-btn {
@@ -141,13 +184,18 @@
     border-color: rgba(255,255,255,0.15);
     opacity: 0.5;
   }
-
+  .ctrl-btn.feature-on {
+    border-color: #007aff;
+    background: rgba(0,122,255,0.2);
+    box-shadow: 0 0 12px rgba(0,122,255,0.3);
+  }
   .ctrl-btn svg { width: 24px; height: 24px; }
 
   .ctrl-label {
     color: rgba(255,255,255,0.75); font-size: 11px;
     text-align: center;
   }
+  .ctrl-label.on { color: #007aff; }
 
   /* 录制按钮 */
   .btn-rec-wrap { min-width: 80px; }
@@ -217,19 +265,22 @@
     white-space: nowrap;
   }
   .toast.show { opacity: 1; }
-
-  /* 设备选择（隐藏） */
-  .device-select {
-    display: none;
-  }
 </style>
 </head>
 <body>
 <div class="app" id="app">
 
   <div class="viewfinder" id="viewfinder">
-    <video id="video" autoplay playsinline muted></video>
+    <div class="stabilizer" id="stabilizer">
+      <video id="video" autoplay playsinline muted></video>
+    </div>
     <div class="grid-overlay"></div>
+
+    <!-- 预录制指示器 -->
+    <div class="pre-record-indicator active" id="preRecordInd">
+      <div class="pre-dot pulse"></div>
+      <span>预录缓冲 10s</span>
+    </div>
 
     <div class="record-bar" id="recordBar">
       <div class="rec-dot blink" id="recDot"></div>
@@ -245,33 +296,64 @@
   </div>
 
   <div class="controls">
-    <div class="ctrl-group">
-      <div class="ctrl-btn wide-active" id="btnWide" title="切换广角/标准">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <rect x="2" y="5" width="20" height="14" rx="2" stroke="#fff"/>
-          <circle cx="12" cy="12" r="4" stroke="#fff"/>
-          <circle cx="18" cy="9" r="1" fill="#fff"/>
-          <line x1="2" y1="8" x2="22" y2="8" stroke="#ff9500" stroke-width="1.5"/>
-          <line x1="2" y1="16" x2="22" y2="16" stroke="#ff9500" stroke-width="1.5"/>
-        </svg>
+    <!-- 第一行：录制 + 广角 -->
+    <div class="controls-row">
+      <div class="ctrl-group">
+        <div class="ctrl-btn wide-active" id="btnWide" title="切换广角/标准">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="2" y="5" width="20" height="14" rx="2" stroke="#fff"/>
+            <circle cx="12" cy="12" r="4" stroke="#fff"/>
+            <circle cx="18" cy="9" r="1" fill="#fff"/>
+            <line x1="2" y1="8" x2="22" y2="8" stroke="#ff9500" stroke-width="1.5"/>
+            <line x1="2" y1="16" x2="22" y2="16" stroke="#ff9500" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <span class="ctrl-label">广角</span>
       </div>
-      <span class="ctrl-label">广角</span>
+
+      <div class="ctrl-group btn-rec-wrap">
+        <div class="btn-rec" id="btnRecord">
+          <div class="rec-inner"></div>
+        </div>
+      </div>
+
+      <div class="ctrl-group">
+        <div class="ctrl-btn voice-active" id="btnVoice" title="语音控制开关">
+          <svg viewBox="0 0 24 24" fill="#fff">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+        </div>
+        <span class="ctrl-label" id="voiceLabel">语音已开</span>
+      </div>
     </div>
 
-    <div class="ctrl-group btn-rec-wrap">
-      <div class="btn-rec" id="btnRecord">
-        <div class="rec-inner"></div>
+    <!-- 第二行：防抖 + 预录 -->
+    <div class="controls-features">
+      <div class="ctrl-group">
+        <div class="ctrl-btn feature-on" id="btnStabilize" title="防抖开关">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="2" y="4" width="20" height="15" rx="2" stroke="#fff"/>
+            <rect x="6" y="8" width="12" height="7" rx="1" stroke="#007aff" stroke-width="2"/>
+            <circle cx="12" cy="11.5" r="1.5" fill="#007aff"/>
+            <line x1="12" y1="4" x2="12" y2="1" stroke="#fff" stroke-width="1.5"/>
+            <line x1="11" y1="1" x2="13" y2="1" stroke="#007aff" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <span class="ctrl-label on" id="stabLabel">防抖已开</span>
       </div>
-    </div>
 
-    <div class="ctrl-group">
-      <div class="ctrl-btn voice-active" id="btnVoice" title="语音控制开关">
-        <svg viewBox="0 0 24 24" fill="#fff">
-          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-        </svg>
+      <div class="ctrl-group">
+        <div class="ctrl-btn feature-on" id="btnPreRecord" title="预录缓冲">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="10" stroke="#fff"/>
+            <polyline points="8,6 8,18 18,12" fill="#ff9500" stroke="#ff9500" stroke-width="1.5"/>
+            <circle cx="12" cy="12" r="3" stroke="#ff9500" stroke-width="1.5" fill="none"/>
+            <circle cx="12" cy="12" r="1" fill="#ff9500"/>
+          </svg>
+        </div>
+        <span class="ctrl-label on" id="preLabel">预录已开</span>
       </div>
-      <span class="ctrl-label" id="voiceLabel">语音已开</span>
     </div>
   </div>
 
@@ -296,6 +378,7 @@
   // === DOM 引用 ===
   const $ = id => document.getElementById(id);
   const video = $('video');
+  const stabilizer = $('stabilizer');
   const recordBar = $('recordBar');
   const recTime = $('recTime');
   const recSize = $('recSize');
@@ -305,9 +388,14 @@
   const btnRecord = $('btnRecord');
   const btnWide = $('btnWide');
   const btnVoice = $('btnVoice');
+  const btnStabilize = $('btnStabilize');
+  const btnPreRecord = $('btnPreRecord');
   const voiceLabel = $('voiceLabel');
+  const stabLabel = $('stabLabel');
+  const preLabel = $('preLabel');
   const permOverlay = $('permOverlay');
   const btnPerm = $('btnPerm');
+  const preRecordInd = $('preRecordInd');
 
   // === 状态 ===
   let stream = null;
@@ -318,13 +406,161 @@
   let timerInterval = null;
   let voiceEnabled = true;
   let isWideAngle = true;
+  let stabilizeEnabled = true;
+  let preRecordEnabled = true;
   let recognition = null;
-
-  // 摄像头设备信息
   let cameraDevices = [];
   let currentCameraIndex = 0;
 
-  // Toast
+  // ============ 防抖 ============
+  let stabilizerAnimFrame = null;
+  let motionData = { x: 0, y: 0, rotate: 0 };
+  let targetMotion = { x: 0, y: 0, rotate: 0 };
+  const SMOOTH_FACTOR = 0.15; // 低通平滑系数
+  const MOTION_SCALE = 0.6;    // 运动补偿强度
+  const MAX_TRANSLATE = 18;    // 最大像素平移
+  const MAX_ROTATE = 1.2;      // 最大旋转角度
+
+  function setupStabilization() {
+    let lastRotRate = { alpha: 0, beta: 0, gamma: 0 };
+    let lastAccel = { x: 0, y: 0, z: 0 };
+
+    // 陀螺仪：旋转速率
+    window.addEventListener('deviceorientation', (e) => {
+      if (!stabilizeEnabled) return;
+      const a = e.alpha || 0, b = e.beta || 0, g = e.gamma || 0;
+      const dAlpha = a - lastRotRate.alpha;
+      const dBeta = b - lastRotRate.beta;
+      const dGamma = g - lastRotRate.gamma;
+      lastRotRate = { alpha: a, beta: b, gamma: g };
+
+      // 手机俯仰和偏航补偿
+      targetMotion.rotate = clamp(dGamma * 0.08, -MAX_ROTATE, MAX_ROTATE);
+      targetMotion.x = clamp(dBeta * MOTION_SCALE, -MAX_TRANSLATE, MAX_TRANSLATE);
+    }, true);
+
+    // 加速度计：线性抖动补偿
+    window.addEventListener('devicemotion', (e) => {
+      if (!stabilizeEnabled) return;
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const dx = (acc.x - lastAccel.x);
+      const dy = (acc.y - lastAccel.y);
+      lastAccel = { x: acc.x, y: acc.y, z: acc.z || 0 };
+
+      // 累积高频短时抖动
+      targetMotion.y += clamp(dy * 1.5, -4, 4);
+      targetMotion.x += clamp(dx * 1.5, -4, 4);
+      targetMotion.x = clamp(targetMotion.x, -MAX_TRANSLATE, MAX_TRANSLATE);
+      targetMotion.y = clamp(targetMotion.y, -MAX_TRANSLATE, MAX_TRANSLATE);
+    }, true);
+
+    // RAF 循环：平滑插值 + 应用到 video
+    function updateStabilizer() {
+      // 低通平滑
+      motionData.x += (targetMotion.x - motionData.x) * SMOOTH_FACTOR;
+      motionData.y += (targetMotion.y - motionData.y) * SMOOTH_FACTOR;
+      motionData.rotate += (targetMotion.rotate - motionData.rotate) * SMOOTH_FACTOR;
+
+      // 缓慢归零（静止时回到中心）
+      targetMotion.x *= 0.95;
+      targetMotion.y *= 0.95;
+      targetMotion.rotate *= 0.95;
+
+      if (stabilizeEnabled) {
+        video.style.transform =
+          'translate(' + (-motionData.x).toFixed(2) + 'px, ' + (-motionData.y).toFixed(2) + 'px) ' +
+          'rotate(' + (-motionData.rotate).toFixed(3) + 'deg)';
+      }
+
+      stabilizerAnimFrame = requestAnimationFrame(updateStabilizer);
+    }
+    stabilizerAnimFrame = requestAnimationFrame(updateStabilizer);
+  }
+
+  function stopStabilization() {
+    if (stabilizerAnimFrame) {
+      cancelAnimationFrame(stabilizerAnimFrame);
+      stabilizerAnimFrame = null;
+    }
+    video.style.transform = '';
+    motionData = { x: 0, y: 0, rotate: 0 };
+    targetMotion = { x: 0, y: 0, rotate: 0 };
+  }
+
+  // ============ 预录制 ============
+  const PRE_RECORD_MS = 10000;      // 预录 10 秒
+  const PRE_TIMESLICE = 500;         // 每 500ms 切一片
+  let preRecorder = null;
+  let preRecordBuffer = [];           // 环形缓冲 [{ ts, chunk }]
+  let preRecordTimerInterval = null;
+
+  function startPreRecording() {
+    if (!preRecordEnabled || !stream) return;
+    stopPreRecordingSilent();
+
+    try {
+      let mimeType = 'video/webm;codecs=vp9';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm;codecs=vp8';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+      }
+      preRecorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 4000000
+      });
+
+      preRecordBuffer = [];
+
+      preRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          preRecordBuffer.push({ ts: Date.now(), chunk: e.data });
+          // 清理超出缓冲窗口的旧数据
+          const cutoff = Date.now() - PRE_RECORD_MS - 500;
+          while (preRecordBuffer.length > 1 && preRecordBuffer[0].ts < cutoff) {
+            preRecordBuffer.shift();
+          }
+          // 限制最多 20 片防止内存爆
+          if (preRecordBuffer.length > 20) preRecordBuffer.shift();
+        }
+      };
+
+      preRecorder.onerror = (e) => {
+        console.warn('预录错误:', e);
+      };
+
+      preRecorder.start(PRE_TIMESLICE);
+      preRecordInd.classList.add('active');
+      console.log('预录制缓冲已启动');
+    } catch(e) {
+      console.warn('启动预录失败:', e);
+    }
+  }
+
+  function stopPreRecordingSilent() {
+    if (preRecorder && preRecorder.state === 'recording') {
+      try { preRecorder.stop(); } catch(e) {}
+    }
+    preRecorder = null;
+  }
+
+  function stopPreRecording() {
+    stopPreRecordingSilent();
+    preRecordBuffer = [];
+    preRecordInd.classList.remove('active');
+  }
+
+  // 获取预录缓冲的 chunk 数组（在开始正式录制时快照）
+  function snapshotPreBuffer() {
+    const now = Date.now();
+    const cutoff = now - PRE_RECORD_MS;
+    const chunks = preRecordBuffer
+      .filter(item => item.ts >= cutoff)
+      .map(item => item.chunk);
+    return chunks;
+  }
+
+  // ============ Toast ============
   let toastTimer = null;
   function showToast(msg) {
     toast.textContent = msg;
@@ -333,7 +569,10 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2000);
   }
 
-  // === 相机设备枚举 ===
+  // ============ 工具函数 ============
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  // ============ 相机设备枚举 ============
   async function enumerateCameras() {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -346,7 +585,7 @@
     }
   }
 
-  // === 启动相机 ===
+  // ============ 启动相机 ============
   async function startCamera(deviceId = null) {
     stopCamera();
 
@@ -359,6 +598,11 @@
       audio: true
     };
 
+    // 防抖：尝试请求硬件 EIS
+    if (stabilizeEnabled) {
+      constraints.video.videoStabilizationMode = 'auto';
+    }
+
     if (deviceId) {
       constraints.video.deviceId = { exact: deviceId };
     }
@@ -367,8 +611,31 @@
       stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
       permOverlay.style.display = 'none';
-      console.log('相机已启动:', deviceId || '默认后置');
+
+      // 相机启动后自动开启预录
+      setTimeout(() => {
+        if (preRecordEnabled) startPreRecording();
+      }, 300);
+
+      console.log('相机已启动:', deviceId || '默认后置',
+        stabilizeEnabled ? '(EIS on)' : '');
     } catch(e) {
+      // 如果 videoStabilizationMode 不支持，回退
+      if (e.name === 'OverconstrainedError' && constraints.video.videoStabilizationMode) {
+        delete constraints.video.videoStabilizationMode;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = stream;
+          permOverlay.style.display = 'none';
+          console.log('相机已启动（EIS 不支持，软件防抖生效）');
+          setTimeout(() => {
+            if (preRecordEnabled) startPreRecording();
+          }, 300);
+          return;
+        } catch(e2) {
+          console.error('相机回退也失败:', e2);
+        }
+      }
       console.error('启动相机失败:', e);
       if (!deviceId) {
         showToast('无法访问相机，请检查权限');
@@ -378,6 +645,8 @@
   }
 
   function stopCamera() {
+    stopPreRecordingSilent();
+    preRecordBuffer = [];
     if (stream) {
       stream.getTracks().forEach(t => t.stop());
       stream = null;
@@ -385,7 +654,7 @@
     video.srcObject = null;
   }
 
-  // === 广角切换 ===
+  // ============ 广角切换 ============
   async function toggleWideAngle() {
     if (isRecording) {
       showToast('录制中无法切换镜头');
@@ -425,12 +694,26 @@
     }
   }
 
-  // === 录像 ===
+  // ============ 录像（含预录） ============
+  let savedPreChunks = []; // 保存的预录数据
+
   function startRecording() {
     if (isRecording || !stream) return;
     isRecording = true;
     recordedChunks = [];
     recordingSeconds = 0;
+
+    // --- 关键：快照预录缓冲 ---
+    savedPreChunks = [];
+    if (preRecordEnabled) {
+      savedPreChunks = snapshotPreBuffer();
+      preRecordInd.classList.remove('active');
+      console.log('预录快照:', savedPreChunks.length, '片');
+    }
+
+    // 重启预录（为了下次录制也有缓冲）
+    stopPreRecordingSilent();
+    preRecordBuffer = [];
 
     try {
       let mimeType = 'video/webm;codecs=vp9';
@@ -448,23 +731,40 @@
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: mimeType });
+        // 合并：预录缓冲 + 正式录制
+        const allChunks = [...savedPreChunks, ...recordedChunks];
+        savedPreChunks = [];
+
+        if (allChunks.length === 0) return;
+
+        const blob = new Blob(allChunks, { type: mimeType });
         const url = URL.createObjectURL(blob);
+        const preLen = savedPreChunks.length; // 已用，这是 0
+        // 重新计算：实际预录的 chunk 数
         downloadOrShare(url, blob);
         recordedChunks = [];
+
+        // 录制结束后重启预录
+        if (preRecordEnabled && stream) {
+          setTimeout(() => startPreRecording(), 500);
+        }
       };
 
       mediaRecorder.onerror = (e) => {
         console.error('录制错误:', e);
         showToast('录制出错，请重试');
+        savedPreChunks = [];
         resetRecordingState();
+        if (preRecordEnabled && stream) startPreRecording();
       };
 
       mediaRecorder.start(1000);
     } catch(e) {
       console.error('开始录制失败:', e);
       isRecording = false;
+      savedPreChunks = [];
       showToast('录制启动失败');
+      if (preRecordEnabled && stream) startPreRecording();
       return;
     }
 
@@ -473,7 +773,8 @@
     startTimer();
     voiceHint.textContent = '🔴 正在录像...';
     voiceHint.classList.add('command-detected');
-    showToast('🔴 录像开始');
+    const preInfo = savedPreChunks.length > 0 ? '（含预录 ' + (PRE_RECORD_MS/1000) + 's）' : '';
+    showToast('🔴 录像开始' + preInfo);
   }
 
   function stopRecording() {
@@ -533,7 +834,7 @@
     showToast('✅ 视频已保存: ' + filename);
   }
 
-  // === 计时器 ===
+  // ============ 计时器 ============
   function startTimer() {
     recTime.textContent = '00:00';
     timerInterval = setInterval(() => {
@@ -541,7 +842,7 @@
       const m = Math.floor(recordingSeconds / 60);
       const s = recordingSeconds % 60;
       recTime.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
-      recSize.textContent = formatSize(recordingSeconds * 500000); // 估算大小
+      recSize.textContent = formatSize(recordingSeconds * 500000);
     }, 1000);
   }
 
@@ -555,7 +856,7 @@
     return (bytes/(1024*1024)).toFixed(1) + 'MB';
   }
 
-  // === 语音控制 ===
+  // ============ 语音控制 ============
   function setupVoiceControl() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -576,9 +877,7 @@
     const stopKeywords  = ['停止录像', '停止拍摄', '停止录影', '停止', '结束', '停'];
 
     recognition.onresult = (event) => {
-      let transcript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
         if (event.results[i].isFinal) {
           for (let j = 0; j < event.results[i].length; j++) {
             const alt = event.results[i][j].transcript.toLowerCase();
@@ -602,10 +901,7 @@
           }
         }
       }
-
-      if (!isRecording && !isRecording) {
-        voiceHint.textContent = '🎤 语音监听中...';
-      }
+      if (!isRecording) voiceHint.textContent = '🎤 语音监听中...';
     };
 
     recognition.onerror = (event) => {
@@ -615,27 +911,20 @@
         return;
       }
       if (voiceEnabled) {
-        setTimeout(() => {
-          try { recognition.start(); } catch(e) {}
-        }, 2000);
+        setTimeout(() => { try { recognition.start(); } catch(e) {} }, 2000);
       }
     };
 
     recognition.onend = () => {
       if (voiceEnabled) {
-        setTimeout(() => {
-          try { recognition.start(); } catch(e) {}
-        }, 500);
+        setTimeout(() => { try { recognition.start(); } catch(e) {} }, 500);
       }
     };
 
-    try {
-      recognition.start();
-    } catch(e) {
-      console.warn('语音启动失败:', e);
-    }
+    try { recognition.start(); } catch(e) {}
   }
 
+  // ============ 功能开关 ============
   function toggleVoice() {
     voiceEnabled = !voiceEnabled;
     if (voiceEnabled) {
@@ -653,12 +942,47 @@
     }
   }
 
-  // === 事件绑定 ===
+  function toggleStabilize() {
+    stabilizeEnabled = !stabilizeEnabled;
+    if (stabilizeEnabled) {
+      btnStabilize.classList.add('feature-on');
+      stabLabel.textContent = '防抖已开';
+      stabLabel.classList.add('on');
+      setupStabilization();
+      showToast('🛡️ 防抖已开启');
+    } else {
+      btnStabilize.classList.remove('feature-on');
+      stabLabel.textContent = '防抖已关';
+      stabLabel.classList.remove('on');
+      stopStabilization();
+      showToast('防抖已关闭');
+    }
+  }
+
+  function togglePreRecord() {
+    preRecordEnabled = !preRecordEnabled;
+    if (preRecordEnabled) {
+      btnPreRecord.classList.add('feature-on');
+      preLabel.textContent = '预录已开';
+      preLabel.classList.add('on');
+      if (stream && !isRecording) startPreRecording();
+      showToast('⏪ 预录缓冲 ' + (PRE_RECORD_MS/1000) + 's');
+    } else {
+      btnPreRecord.classList.remove('feature-on');
+      preLabel.textContent = '预录已关';
+      preLabel.classList.remove('on');
+      stopPreRecording();
+      showToast('预录已关闭');
+    }
+  }
+
+  // ============ 事件绑定 ============
   btnPerm.addEventListener('click', async () => {
     try {
       await enumerateCameras();
       await startCamera();
       if (voiceEnabled) setupVoiceControl();
+      if (stabilizeEnabled) setupStabilization();
       updateUIState();
     } catch(e) {
       showToast('请允许相机和麦克风权限');
@@ -672,15 +996,15 @@
 
   btnWide.addEventListener('click', toggleWideAngle);
   btnVoice.addEventListener('click', toggleVoice);
+  btnStabilize.addEventListener('click', toggleStabilize);
+  btnPreRecord.addEventListener('click', togglePreRecord);
 
   // 双击取景器切换镜头
   let lastTap = 0;
   document.querySelector('.viewfinder').addEventListener('click', (e) => {
     if (e.target.closest('button') || e.target.closest('.voice-hint') || e.target.closest('.toast')) return;
     const now = Date.now();
-    if (now - lastTap < 300) {
-      toggleWideAngle();
-    }
+    if (now - lastTap < 300) toggleWideAngle();
     lastTap = now;
   });
 
@@ -688,10 +1012,11 @@
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && stream && !video.srcObject) {
       video.srcObject = stream;
+      if (preRecordEnabled && !isRecording) startPreRecording();
     }
   });
 
-  // === Service Worker 注册 ===
+  // Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
