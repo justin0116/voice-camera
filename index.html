@@ -279,7 +279,7 @@
     <!-- 预录制指示器 -->
     <div class="pre-record-indicator active" id="preRecordInd">
       <div class="pre-dot pulse"></div>
-      <span>预录缓冲 10s</span>
+      <span>预录缓冲 3s</span>
     </div>
 
     <div class="record-bar" id="recordBar">
@@ -489,7 +489,7 @@
   }
 
   // ============ 预录制 ============
-  const PRE_RECORD_MS = 10000;      // 预录 10 秒
+  const PRE_RECORD_MS = 3000;       // 预录 3 秒
   const PRE_TIMESLICE = 500;         // 每 500ms 切一片
   let preRecorder = null;
   let preRecordBuffer = [];           // 环形缓冲 [{ ts, chunk }]
