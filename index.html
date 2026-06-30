@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="语音相机">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>语音相机</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root {
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .app {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    position: relative;
+    background: #000;
+  }
+
+  /* 相机预览 */
+  .viewfinder {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #0a0a0a;
+  }
+  .viewfinder video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .viewfinder canvas {
+    display: none;
+  }
+
+  /* 网格线 */
+  .grid-overlay {
+    position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-size: 33.33% 33.33%;
+  }
+
+  /* 顶部录制提示条 */
+  .record-bar {
+    position: absolute; top: var(--safe-area-top); left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+    opacity: 0; transform: translateY(-10px);
+    transition: opacity .3s, transform .3s;
+  }
+  .record-bar.active { opacity: 1; transform: translateY(0); }
+  .rec-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: #ff3b30;
+    flex-shrink: 0;
+  }
+  .rec-dot.blink { animation: blink 0.8s infinite alternate; }
+  @keyframes blink { from { opacity: 1; } to { opacity: 0.15; } }
+  .rec-time {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: #fff; font-size: 16px; font-weight: 500;
+    letter-spacing: 1px;
+  }
+  .rec-size {
+    margin-left: auto;
+    color: rgba(255,255,255,0.6); font-size: 12px;
+  }
+
+  /* 广角模式标签 */
+  .lens-label {
+    position: absolute; top: calc(var(--safe-area-top) + 56px); left: 50%; transform: translateX(-50%); z-index: 10;
+    background: rgba(0,0,0,0.6); color: #fff;
+    padding: 5px 14px; border-radius: 16px;
+    font-size: 13px; font-weight: 500;
+    opacity: 0; transition: opacity .2s;
+  }
+  .lens-label.show { opacity: 1; }
+
+  /* 语音命令提示 */
+  .voice-hint {
+    position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); z-index: 10;
+    background: rgba(0,0,0,0.7); color: #fff;
+    padding: 8px 18px; border-radius: 20px;
+    font-size: 13px; white-space: nowrap;
+    transition: all .3s;
+  }
+  .voice-hint.command-detected {
+    background: rgba(52, 199, 89, 0.85);
+  }
+
+  /* 底部控制栏 */
+  .controls {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-around;
+    padding: 12px 16px calc(12px + var(--safe-area-bottom));
+    background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 100%);
+  }
+
+  .ctrl-group {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    min-width: 72px;
+  }
+
+  .ctrl-btn {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.1);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all .2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ctrl-btn:active { transform: scale(0.92); background: rgba(255,255,255,0.2); }
+  .ctrl-btn.wide-active {
+    border-color: #ff9500;
+    background: rgba(255,149,0,0.2);
+  }
+  .ctrl-btn.voice-active {
+    border-color: #34c759;
+  }
+  .ctrl-btn.voice-off {
+    border-color: rgba(255,255,255,0.15);
+    opacity: 0.5;
+  }
+
+  .ctrl-btn svg { width: 24px; height: 24px; }
+
+  .ctrl-label {
+    color: rgba(255,255,255,0.75); font-size: 11px;
+    text-align: center;
+  }
+
+  /* 录制按钮 */
+  .btn-rec-wrap { min-width: 80px; }
+  .btn-rec {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all .25s;
+    position: relative;
+  }
+  .btn-rec:active { transform: scale(0.92); }
+  .btn-rec.recording {
+    border-color: #ff3b30;
+    background: rgba(255,59,48,0.2);
+  }
+  .btn-rec.recording .rec-inner {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    background: #ff3b30;
+  }
+  .rec-inner {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #fff;
+    transition: all .25s;
+  }
+
+  /* 权限提示遮罩 */
+  .permission-overlay {
+    position: absolute; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.92);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px;
+    padding: 32px;
+  }
+  .permission-overlay h2 {
+    color: #fff; font-size: 20px; font-weight: 600;
+    text-align: center;
+  }
+  .permission-overlay p {
+    color: rgba(255,255,255,0.6); font-size: 14px;
+    text-align: center; line-height: 1.6;
+  }
+  .perm-btn {
+    padding: 14px 40px;
+    border-radius: 28px;
+    background: #fff; color: #000;
+    font-size: 16px; font-weight: 600;
+    border: none; cursor: pointer;
+    transition: all .2s;
+  }
+  .perm-btn:active { transform: scale(0.96); opacity: 0.85; }
+
+  /* Toast */
+  .toast {
+    position: absolute; top: calc(var(--safe-area-top) + 60px);
+    left: 50%; transform: translateX(-50%); z-index: 200;
+    background: rgba(0,0,0,0.85); color: #fff;
+    padding: 10px 22px; border-radius: 20px;
+    font-size: 14px;
+    opacity: 0; transition: opacity .3s;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+
+  /* 设备选择（隐藏） */
+  .device-select {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <div class="viewfinder" id="viewfinder">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="grid-overlay"></div>
+
+    <div class="record-bar" id="recordBar">
+      <div class="rec-dot blink" id="recDot"></div>
+      <span class="rec-time" id="recTime">00:00</span>
+      <span class="rec-size" id="recSize"></span>
+    </div>
+
+    <div class="lens-label" id="lensLabel">0.5x 广角</div>
+
+    <div class="voice-hint" id="voiceHint">🎤 说「开始录像」或「停止录像」</div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="controls">
+    <div class="ctrl-group">
+      <div class="ctrl-btn wide-active" id="btnWide" title="切换广角/标准">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="2" y="5" width="20" height="14" rx="2" stroke="#fff"/>
+          <circle cx="12" cy="12" r="4" stroke="#fff"/>
+          <circle cx="18" cy="9" r="1" fill="#fff"/>
+          <line x1="2" y1="8" x2="22" y2="8" stroke="#ff9500" stroke-width="1.5"/>
+          <line x1="2" y1="16" x2="22" y2="16" stroke="#ff9500" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <span class="ctrl-label">广角</span>
+    </div>
+
+    <div class="ctrl-group btn-rec-wrap">
+      <div class="btn-rec" id="btnRecord">
+        <div class="rec-inner"></div>
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <div class="ctrl-btn voice-active" id="btnVoice" title="语音控制开关">
+        <svg viewBox="0 0 24 24" fill="#fff">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+      </div>
+      <span class="ctrl-label" id="voiceLabel">语音已开</span>
+    </div>
+  </div>
+
+  <div class="permission-overlay" id="permOverlay">
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5">
+      <rect x="2" y="5" width="20" height="14" rx="2"/>
+      <circle cx="8" cy="9" r="2"/>
+      <circle cx="16" cy="9" r="2"/>
+      <path d="M2 15l4-4 2 2 4-4 4 4 2-2 4 4"/>
+    </svg>
+    <h2>需要相机与麦克风权限</h2>
+    <p>语音控制录像需要相机和麦克风授权<br>点击下方按钮开始</p>
+    <button class="perm-btn" id="btnPerm">开启相机</button>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // === DOM 引用 ===
+  const $ = id => document.getElementById(id);
+  const video = $('video');
+  const recordBar = $('recordBar');
+  const recTime = $('recTime');
+  const recSize = $('recSize');
+  const lensLabel = $('lensLabel');
+  const voiceHint = $('voiceHint');
+  const toast = $('toast');
+  const btnRecord = $('btnRecord');
+  const btnWide = $('btnWide');
+  const btnVoice = $('btnVoice');
+  const voiceLabel = $('voiceLabel');
+  const permOverlay = $('permOverlay');
+  const btnPerm = $('btnPerm');
+
+  // === 状态 ===
+  let stream = null;
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let isRecording = false;
+  let recordingSeconds = 0;
+  let timerInterval = null;
+  let voiceEnabled = true;
+  let isWideAngle = true;
+  let recognition = null;
+
+  // 摄像头设备信息
+  let cameraDevices = [];
+  let currentCameraIndex = 0;
+
+  // Toast
+  let toastTimer = null;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2000);
+  }
+
+  // === 相机设备枚举 ===
+  async function enumerateCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameraDevices = devices.filter(d => d.kind === 'videoinput');
+      console.log('摄像头列表:', cameraDevices.map(d => d.label || d.deviceId));
+      return cameraDevices;
+    } catch(e) {
+      console.warn('枚举设备失败:', e);
+      return [];
+    }
+  }
+
+  // === 启动相机 ===
+  async function startCamera(deviceId = null) {
+    stopCamera();
+
+    const constraints = {
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        facingMode: 'environment'
+      },
+      audio: true
+    };
+
+    if (deviceId) {
+      constraints.video.deviceId = { exact: deviceId };
+    }
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      permOverlay.style.display = 'none';
+      console.log('相机已启动:', deviceId || '默认后置');
+    } catch(e) {
+      console.error('启动相机失败:', e);
+      if (!deviceId) {
+        showToast('无法访问相机，请检查权限');
+      }
+      throw e;
+    }
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    video.srcObject = null;
+  }
+
+  // === 广角切换 ===
+  async function toggleWideAngle() {
+    if (isRecording) {
+      showToast('录制中无法切换镜头');
+      return;
+    }
+
+    isWideAngle = !isWideAngle;
+
+    if (cameraDevices.length <= 1) {
+      await startCamera();
+      showToast(isWideAngle ? '广角模式（模拟）' : '标准模式');
+    } else {
+      currentCameraIndex = isWideAngle ? 0 : Math.min(1, cameraDevices.length - 1);
+      try {
+        await startCamera(cameraDevices[currentCameraIndex].deviceId);
+        showToast(isWideAngle ? '📷 广角模式' : '📷 标准模式');
+      } catch(e) {
+        await startCamera();
+        showToast(isWideAngle ? '广角模式（回退）' : '标准模式（回退）');
+      }
+    }
+
+    updateUIState();
+  }
+
+  function updateUIState() {
+    if (isWideAngle) {
+      btnWide.classList.add('wide-active');
+      lensLabel.textContent = '0.5x 广角';
+      lensLabel.classList.add('show');
+      setTimeout(() => lensLabel.classList.remove('show'), 2000);
+    } else {
+      btnWide.classList.remove('wide-active');
+      lensLabel.textContent = '1x';
+      lensLabel.classList.add('show');
+      setTimeout(() => lensLabel.classList.remove('show'), 2000);
+    }
+  }
+
+  // === 录像 ===
+  function startRecording() {
+    if (isRecording || !stream) return;
+    isRecording = true;
+    recordedChunks = [];
+    recordingSeconds = 0;
+
+    try {
+      let mimeType = 'video/webm;codecs=vp9';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm;codecs=vp8';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm';
+        }
+      }
+
+      mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        downloadOrShare(url, blob);
+        recordedChunks = [];
+      };
+
+      mediaRecorder.onerror = (e) => {
+        console.error('录制错误:', e);
+        showToast('录制出错，请重试');
+        resetRecordingState();
+      };
+
+      mediaRecorder.start(1000);
+    } catch(e) {
+      console.error('开始录制失败:', e);
+      isRecording = false;
+      showToast('录制启动失败');
+      return;
+    }
+
+    btnRecord.classList.add('recording');
+    recordBar.classList.add('active');
+    startTimer();
+    voiceHint.textContent = '🔴 正在录像...';
+    voiceHint.classList.add('command-detected');
+    showToast('🔴 录像开始');
+  }
+
+  function stopRecording() {
+    if (!isRecording || !mediaRecorder) return;
+    isRecording = false;
+
+    if (mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+
+    resetRecordingState();
+    voiceHint.textContent = '🎤 说「开始录像」或「停止录像」';
+    voiceHint.classList.remove('command-detected');
+    showToast('⏹️ 录像已保存');
+  }
+
+  function resetRecordingState() {
+    btnRecord.classList.remove('recording');
+    recordBar.classList.remove('active');
+    stopTimer();
+  }
+
+  function downloadOrShare(url, blob) {
+    const now = new Date();
+    const filename = 'VoiceCamera_' +
+      now.getFullYear() +
+      String(now.getMonth()+1).padStart(2,'0') +
+      String(now.getDate()).padStart(2,'0') + '_' +
+      String(now.getHours()).padStart(2,'0') +
+      String(now.getMinutes()).padStart(2,'0') +
+      String(now.getSeconds()).padStart(2,'0') + '.webm';
+
+    if (navigator.share && navigator.canShare) {
+      const file = new File([blob], filename, { type: blob.type || 'video/webm' });
+      if (navigator.canShare({ files: [file] })) {
+        navigator.share({
+          title: '语音相机录像',
+          files: [file]
+        }).catch(() => fallbackDownload(url, filename));
+        return;
+      }
+    }
+    fallbackDownload(url, filename);
+  }
+
+  function fallbackDownload(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 200);
+    showToast('✅ 视频已保存: ' + filename);
+  }
+
+  // === 计时器 ===
+  function startTimer() {
+    recTime.textContent = '00:00';
+    timerInterval = setInterval(() => {
+      recordingSeconds++;
+      const m = Math.floor(recordingSeconds / 60);
+      const s = recordingSeconds % 60;
+      recTime.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+      recSize.textContent = formatSize(recordingSeconds * 500000); // 估算大小
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(0) + 'KB';
+    return (bytes/(1024*1024)).toFixed(1) + 'MB';
+  }
+
+  // === 语音控制 ===
+  function setupVoiceControl() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      voiceEnabled = false;
+      btnVoice.classList.add('voice-off');
+      voiceLabel.textContent = '语音不可用';
+      voiceHint.textContent = '📱 手动点击按钮操作';
+      return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 3;
+
+    const startKeywords = ['开始录像', '开始拍摄', '开始录影', '开始', '录像', '拍摄', '录影'];
+    const stopKeywords  = ['停止录像', '停止拍摄', '停止录影', '停止', '结束', '停'];
+
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          for (let j = 0; j < event.results[i].length; j++) {
+            const alt = event.results[i][j].transcript.toLowerCase();
+            const isStop = stopKeywords.some(k => alt.includes(k.toLowerCase()));
+            const isStart = startKeywords.some(k => alt.includes(k.toLowerCase()));
+
+            if (isStop && isRecording) {
+              voiceHint.textContent = '✅ 识别：停止录像';
+              voiceHint.classList.add('command-detected');
+              setTimeout(() => voiceHint.classList.remove('command-detected'), 1000);
+              stopRecording();
+              return;
+            }
+            if (isStart && !isRecording) {
+              voiceHint.textContent = '✅ 识别：开始录像';
+              voiceHint.classList.add('command-detected');
+              setTimeout(() => voiceHint.classList.remove('command-detected'), 1000);
+              startRecording();
+              return;
+            }
+          }
+        }
+      }
+
+      if (!isRecording && !isRecording) {
+        voiceHint.textContent = '🎤 语音监听中...';
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.warn('语音识别错误:', event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        voiceHint.textContent = '🔇 语音服务不可用';
+        return;
+      }
+      if (voiceEnabled) {
+        setTimeout(() => {
+          try { recognition.start(); } catch(e) {}
+        }, 2000);
+      }
+    };
+
+    recognition.onend = () => {
+      if (voiceEnabled) {
+        setTimeout(() => {
+          try { recognition.start(); } catch(e) {}
+        }, 500);
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch(e) {
+      console.warn('语音启动失败:', e);
+    }
+  }
+
+  function toggleVoice() {
+    voiceEnabled = !voiceEnabled;
+    if (voiceEnabled) {
+      btnVoice.classList.remove('voice-off');
+      btnVoice.classList.add('voice-active');
+      voiceLabel.textContent = '语音已开';
+      voiceHint.textContent = '🎤 说「开始录像」或「停止录像」';
+      try { recognition.start(); } catch(e) {}
+    } else {
+      btnVoice.classList.add('voice-off');
+      btnVoice.classList.remove('voice-active');
+      voiceLabel.textContent = '语音已关';
+      voiceHint.textContent = '📱 手动点击按钮操作';
+      try { recognition.stop(); } catch(e) {}
+    }
+  }
+
+  // === 事件绑定 ===
+  btnPerm.addEventListener('click', async () => {
+    try {
+      await enumerateCameras();
+      await startCamera();
+      if (voiceEnabled) setupVoiceControl();
+      updateUIState();
+    } catch(e) {
+      showToast('请允许相机和麦克风权限');
+    }
+  });
+
+  btnRecord.addEventListener('click', () => {
+    if (isRecording) stopRecording();
+    else startRecording();
+  });
+
+  btnWide.addEventListener('click', toggleWideAngle);
+  btnVoice.addEventListener('click', toggleVoice);
+
+  // 双击取景器切换镜头
+  let lastTap = 0;
+  document.querySelector('.viewfinder').addEventListener('click', (e) => {
+    if (e.target.closest('button') || e.target.closest('.voice-hint') || e.target.closest('.toast')) return;
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      toggleWideAngle();
+    }
+    lastTap = now;
+  });
+
+  // 页面恢复时重连
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && stream && !video.srcObject) {
+      video.srcObject = stream;
+    }
+  });
+
+  // === Service Worker 注册 ===
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
