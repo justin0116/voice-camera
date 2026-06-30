@@ -17,7 +17,7 @@
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    width: 100%; height: 100%;
+    width: 100%; height: 100dvh;
     overflow: hidden;
     background: #000;
     font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -25,18 +25,19 @@
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
+    position: fixed;
   }
   .app {
-    width: 100%; height: 100%;
-    display: flex; flex-direction: column;
+    width: 100%; height: 100dvh;
     position: relative;
     background: #000;
+    overflow: hidden;
   }
 
   /* 相机预览 */
   .viewfinder {
-    flex: 1;
-    position: relative;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
     overflow: hidden;
     background: #0a0a0a;
   }
@@ -141,13 +142,14 @@
     background: rgba(52, 199, 89, 0.85);
   }
 
-  /* 底部控制栏 - 两行布局 */
+  /* 底部控制栏 - 固定在屏幕底部 */
   .controls {
-    position: relative; z-index: 10;
+    position: fixed;
+    bottom: 0; left: 0; right: 0; z-index: 50;
     display: flex; flex-direction: column;
     align-items: center;
-    padding: 8px 16px calc(8px + var(--safe-area-bottom, 8px));
-    background: linear-gradient(0deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.4) 100%);
+    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 8px));
+    background: linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.5) 70%, transparent 100%);
     flex-shrink: 0;
   }
   .controls-row {
